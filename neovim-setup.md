@@ -23,7 +23,7 @@ Already available on the dev box:
 - `gcc`, `make`, `cmake` — needed by treesitter for parser compilation
 - `tmux 3.4` — terminal multiplexer
 - `lazygit` — TUI git client
-- Rust toolchain via `rustup` + `cargo`
+- Rust toolchain via `msrustup` + `cargo`
 
 ## Step 1: Install Neovim (pre-built binary)
 
@@ -52,9 +52,27 @@ cargo install ripgrep
 
 # fd (needed by Telescope find files)
 npm install -g fd-find
+
+# tree-sitter-cli (Azure Linux 3 has glibc 2.38, Mason's pre-built binary needs 2.39)
+cargo install tree-sitter-cli
 ```
 
-## Step 3: Install LazyVim starter config
+**Important**: Mason (LazyVim's tool manager) downloads a pre-built `tree-sitter` binary that requires glibc 2.39+. Azure Linux 3 ships glibc 2.38, so treesitter parsers will fail to compile. Building `tree-sitter-cli` from source via cargo links against the system glibc and fixes this. If Mason installs its own copy, remove it:
+
+```zsh
+rm -f ~/.local/share/nvim/mason/bin/tree-sitter
+```
+
+## Step 3: Install rust-analyzer component
+
+If using `msrustup` (Microsoft internal Rust toolchain), the `rust-analyzer` binary at `~/.cargo/bin/rust-analyzer` is a shim that delegates to the toolchain. You must install the component:
+
+```zsh
+msrustup component add rust-analyzer
+rust-analyzer --version  # should print version, not an error
+```
+
+## Step 4: Install LazyVim starter config
 
 ```zsh
 # Back up existing config if any
@@ -68,7 +86,7 @@ git clone https://github.com/LazyVim/starter ~/.config/nvim
 rm -rf ~/.config/nvim/.git
 ```
 
-## Step 4: Enable Rust extra
+## Step 5: Enable Rust extra
 
 ```zsh
 cat > ~/.config/nvim/lua/plugins/rust.lua << 'EOF'
@@ -80,40 +98,45 @@ EOF
 
 This enables: rust-analyzer LSP, crates.nvim, DAP debugging support.
 
-## Step 5: rust-analyzer config
+## Step 6: rust-analyzer config
 
 ```zsh
 cat > ~/.config/nvim/lua/plugins/rust-overrides.lua << 'EOF'
 return {
-  {
-    "neovim/nvim-lspconfig",
-    opts = {
-      servers = {
-        rust_analyzer = {
-          settings = {
-            ["rust-analyzer"] = {
-              cargo = {
-                buildScripts = { enable = true },
-              },
-              checkOnSave = {
-                command = "clippy",
-                -- Separate target dir so RA doesn't fight cargo builds for the target/ lock
-                extraArgs = { "--target-dir", "/tmp/ra-check" },
-              },
-              procMacro = { enable = true },
-            },
-          },
-        },
-      },
-    },
-  },
+   {
+     "neovim/nvim-lspconfig",
+     opts = {
+       servers = {
+         rust_analyzer = {
+           settings = {
+             ["rust-analyzer"] = {
+               cargo = {
+                 buildScripts = { enable = true },
+                 cfgs = { "testbuild" },
+               },
+               checkOnSave = {
+                 command = "clippy",
+                 extraArgs = { "--target-dir", "/tmp/ra-check" },
+               },
+               procMacro = { enable = true },
+               lruCapacity = 100,
+             },
+           },
+         },
+       },
+     },
+   },
 }
 EOF
 ```
 
-**Key detail**: `--target-dir /tmp/ra-check` prevents rust-analyzer's check-on-save clippy from locking the same `target/` directory as your manual `cargo build` / `cargo nextest run` commands.
+**Key settings**:
+- `--target-dir /tmp/ra-check`: Prevents RA's clippy from locking `target/` during manual cargo builds
+- `cfgs = { "testbuild" }`: Makes `#[cfg(testbuild)]` code active in the editor (testbuild = debug/test builds in Orion)
+- `lruCapacity = 100`: Keeps 100 parsed syntax trees in RAM (tune based on workspace size)
+- `procMacro = { enable = true }`: Enables proc-macro expansion for accurate analysis
 
-## Step 6: Disable AI completion
+## Step 7: Disable AI completion
 
 LazyVim ships with Copilot AI suggestions by default. Disable them to keep only rust-analyzer LSP completion (types, methods, traits, fields):
 
@@ -127,33 +150,77 @@ return {
 EOF
 ```
 
-## Step 7: tmux config
+## Step 8: WSL clipboard integration
 
 ```zsh
-cat >> ~/.tmux.conf << 'EOF'
+cat > ~/.config/nvim/lua/plugins/clipboard.lua << 'EOF'
+return {
+  {
+    "LazyVim/LazyVim",
+    opts = function()
+      vim.opt.clipboard = "unnamedplus"
+      vim.g.clipboard = {
+        name = "WslClipboard",
+        copy = {
+          ["+"] = "clip.exe",
+          ["*"] = "clip.exe",
+        },
+        paste = {
+          ["+"] = 'powershell.exe -c [Console]::Out.Write($(Get-Clipboard -Raw).tostring().replace("`r", ""))',
+          ["*"] = 'powershell.exe -c [Console]::Out.Write($(Get-Clipboard -Raw).tostring().replace("`r", ""))',
+        },
+        cache_enabled = 0,
+      }
+    end,
+  },
+}
+EOF
+```
+
+This makes `y` (yank) and `p` (paste) work with the Windows clipboard via WSL.
+
+## Step 9: tmux config
+
+```zsh
+cat > ~/.tmux.conf << 'EOF'
 set -g default-terminal "tmux-256color"
 set -ag terminal-overrides ",xterm-256color:RGB"
 set -g mouse on
 set -g prefix C-a
 unbind C-b
 bind C-a send-prefix
+
+# Resize panes with Alt + arrow keys (5 cells per press)
+bind -n M-Up resize-pane -U 5
+bind -n M-Down resize-pane -D 5
+bind -n M-Left resize-pane -L 5
+bind -n M-Right resize-pane -R 5
 EOF
 ```
 
-Typical session layout:
-```
+**tmux basics**:
+- `Ctrl-a %` — vertical split
+- `Ctrl-a "` — horizontal split
+- `Ctrl-a arrow` — switch between panes
+- `Alt+arrow` — resize panes
+- `Ctrl-a d` — detach (session keeps running)
+- `tmux attach -t dev` — re-attach
+
+Typical layout: neovim (80% left), copilot-cli (20% right).
+
+```zsh
 tmux new -s dev
-# Ctrl-a %  → vertical split (nvim left, copilot-cli right)
-# Ctrl-a "  → horizontal split in right pane (lazygit bottom-right)
+# Then Ctrl-a % to split, resize with Alt+Left/Right
 ```
 
-## Step 8: First launch
+## Step 10: First launch
 
 ```zsh
 nvim
 # Plugins auto-install on first launch (~1-2 min)
 # Treesitter parsers auto-install
 # Open a .rs file to trigger rust-analyzer indexing
+# First RA index of a large workspace (70+ crates) takes several minutes
 ```
 
 ---
@@ -163,10 +230,12 @@ nvim
 | VS Code | Action | Neovim (LazyVim) |
 |---|---|---|
 | Ctrl+Click | Go to definition | `gd` |
-| Shift+F12 | Find all references | `gr` |
-| F12 | Go to implementation | `gI` |
+| Shift+F12 | Find all references | `grr` |
+| F12 | Go to implementation (traits) | `gI` |
 | Ctrl+P | Find file by name | `<Space>ff` |
 | Ctrl+Shift+F | Search in all files | `<Space>sg` |
+| Ctrl+Shift+O | Go to symbol in file | `<Space>ss` |
+| Ctrl+T | Go to symbol in workspace | `<Space>sS` |
 | Ctrl+G | Go to line | `:<number>` then Enter |
 | Ctrl+Tab | Switch between open files | `<Space>,` (buffer picker) or `H`/`L` (prev/next) |
 | Ctrl+. | Code actions | `<Space>ca` |
@@ -174,6 +243,9 @@ nvim
 | Ctrl+` | Terminal | `<Space>ft` |
 | Ctrl+B | Toggle sidebar | `<Space>e` (file explorer) |
 | Ctrl+Shift+P | Command palette | `<Space>` then wait (which-key shows all commands) |
+| Hover | Show docs/type info | `K` |
+
+**Note on `gr` (references)**: `gr` opens a sub-menu. Press `grr` (gr then r) for find-all-references. `gI` only works on trait implementations, not regular functions.
 
 ### Auto-formatting features (no config needed)
 - **Auto-close brackets**: Type `{` and `}` is inserted automatically (mini.pairs plugin)
@@ -189,5 +261,35 @@ All files live under `~/.config/nvim/lua/plugins/`:
 | File | Purpose |
 |---|---|
 | `rust.lua` | Enables LazyVim Rust extra (rust-analyzer, crates.nvim, DAP) |
-| `rust-overrides.lua` | rust-analyzer settings (separate target dir for check-on-save) |
+| `rust-overrides.lua` | rust-analyzer settings (target dir, testbuild cfg, lruCapacity, procMacro) |
 | `disable-ai.lua` | Disables Copilot AI suggestions, keeps LSP completion only |
+| `clipboard.lua` | WSL clipboard integration via clip.exe / powershell.exe |
+
+---
+
+## Troubleshooting
+
+### rust-analyzer crashes on startup (exit code 2)
+The `rust-analyzer` binary is an msrustup shim. Install the component:
+```zsh
+msrustup component add rust-analyzer
+```
+
+### Treesitter parsers fail to compile
+Mason's pre-built `tree-sitter` binary requires glibc 2.39+. Install from cargo:
+```zsh
+cargo install tree-sitter-cli
+rm -f ~/.local/share/nvim/mason/bin/tree-sitter
+```
+
+### `#[cfg(testbuild)]` code appears inactive/grayed out
+Add `cfgs = { "testbuild" }` to rust-analyzer cargo settings (already in the config above).
+
+### `gd` goes to `use` statement instead of actual definition
+rust-analyzer is still indexing. Wait for it to finish (check statusline progress). Use `:checkhealth lsp` to verify RA status.
+
+### `:LspInfo` not found
+Removed in Neovim 0.12+. Use `:checkhealth lsp` or:
+```vim
+:lua print(vim.inspect(vim.lsp.get_clients()))
+```
