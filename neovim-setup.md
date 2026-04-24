@@ -80,9 +80,7 @@ EOF
 
 This enables: rust-analyzer LSP, crates.nvim, DAP debugging support.
 
-## Step 5: Workspace-tuned rust-analyzer config
-
-The pgsql-orion workspace is ~400 crates. Without tuning, rust-analyzer will eat RAM and fight `cargo build` for the target directory lock.
+## Step 5: rust-analyzer config
 
 ```zsh
 cat > ~/.config/nvim/lua/plugins/rust-overrides.lua << 'EOF'
@@ -99,11 +97,10 @@ return {
               },
               checkOnSave = {
                 command = "clippy",
-                -- CRITICAL: separate target dir so RA doesn't fight cargo builds
+                -- Separate target dir so RA doesn't fight cargo builds for the target/ lock
                 extraArgs = { "--target-dir", "/tmp/ra-check" },
               },
               procMacro = { enable = true },
-              lruCapacity = 128,
             },
           },
         },
@@ -114,7 +111,7 @@ return {
 EOF
 ```
 
-**Key detail**: `--target-dir /tmp/ra-check` prevents rust-analyzer from locking the same `target/` directory as your manual `cargo build` / `cargo nextest run` commands.
+**Key detail**: `--target-dir /tmp/ra-check` prevents rust-analyzer's check-on-save clippy from locking the same `target/` directory as your manual `cargo build` / `cargo nextest run` commands.
 
 ## Step 6: Disable AI completion
 
@@ -192,5 +189,5 @@ All files live under `~/.config/nvim/lua/plugins/`:
 | File | Purpose |
 |---|---|
 | `rust.lua` | Enables LazyVim Rust extra (rust-analyzer, crates.nvim, DAP) |
-| `rust-overrides.lua` | Workspace-specific rust-analyzer settings (separate target dir, LRU cap) |
+| `rust-overrides.lua` | rust-analyzer settings (separate target dir for check-on-save) |
 | `disable-ai.lua` | Disables Copilot AI suggestions, keeps LSP completion only |
