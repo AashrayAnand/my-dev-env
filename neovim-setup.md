@@ -256,7 +256,17 @@ nvim
 
 ## Neovim Config File Summary
 
-All files live under `~/.config/nvim/lua/plugins/`:
+All config files are checked in under `config/nvim/` in this repo. To deploy:
+
+```zsh
+# Back up existing config
+mv ~/.config/nvim{,.bak} 2>/dev/null
+
+# Symlink or copy from this repo
+cp -r /path/to/my-dev-env/config/nvim ~/.config/nvim
+```
+
+Key files under `config/nvim/lua/plugins/`:
 
 | File | Purpose |
 |---|---|
@@ -264,6 +274,11 @@ All files live under `~/.config/nvim/lua/plugins/`:
 | `rust-overrides.lua` | rust-analyzer settings (target dir, testbuild cfg, lruCapacity, procMacro) |
 | `disable-ai.lua` | Disables Copilot AI suggestions, keeps LSP completion only |
 | `clipboard.lua` | WSL clipboard integration via clip.exe / powershell.exe |
+| `gitsigns.lua` | Enables inline git blame on every line (GitLens-style) |
+| `catppuccin.lua` | Catppuccin color scheme with gitsigns integration |
+| `blink-cmp.lua` | Completion engine config |
+| `lang-python-c.lua` | Python and C language extras |
+| `search.lua` | Search/telescope customization |
 
 ---
 
